@@ -20,25 +20,25 @@ npx skills-lc-cli add <owner/repo/skillId>
 
 # Or install globally
 npm install -g skills-lc-cli
-skills add <owner/repo/skillId>
+skills-lc add <owner/repo/skillId>
 ```
 
 ## Usage
 
 ```bash
 # Install a skill from GitHub
-skills add vercel-labs/agent-skills/react-best-practices
-skills add anthropics/skills/frontend-design
+skills-lc add vercel-labs/agent-skills/react-best-practices
+skills-lc add anthropics/skills/frontend-design
 
 # Search for skills
-skills search react
-skills search "python testing"
+skills-lc search react
+skills-lc search "python testing"
 
 # List installed skills
-skills list
+skills-lc list
 
 # Show help
-skills help
+skills-lc help
 ```
 
 ## Features
@@ -68,9 +68,10 @@ The CLI automatically detects your environment and installs skills to the right 
 
 ## Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SKILLS_API_URL` | `https://skills.lc` | API base URL for analytics |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SKILLS_API_TOKEN` | No | API token (optional, has default) |
+| `SKILLS_API_URL` | No | API base URL (default: https://skills.lc) |
 
 ## Examples
 

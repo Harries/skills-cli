@@ -7,7 +7,7 @@ import * as http from "http";
 
 // API Configuration
 const API_BASE_URL = process.env.SKILLS_API_URL || "https://skills.lc";
-const API_TOKEN = process.env.SKILLS_API_TOKEN || "";
+const API_TOKEN = process.env.SKILLS_API_TOKEN || "sk_live_XY2_nCklnKAL7nDyCLLEVyLe6Q1g_ebGDjfUk6i-fvY";
 
 // Color output
 const colors = {
@@ -362,7 +362,14 @@ async function searchSkills(query: string): Promise<void> {
   info(`Searching for: ${colors.bright}${query}${colors.reset}`);
 
   try {
-    const res = await request(`${API_BASE_URL}/api/v1/skills/search?q=${encodeURIComponent(query)}&limit=20`);
+    const res = await request(
+      `${API_BASE_URL}/api/v1/skills/search?q=${encodeURIComponent(query)}&limit=20`,
+      {
+        headers: {
+          "Authorization": `Bearer ${API_TOKEN}`,
+        },
+      }
+    );
     
     if (res.status !== 200) {
       error("Failed to search skills");
@@ -412,7 +419,7 @@ async function searchSkills(query: string): Promise<void> {
 // Show help
 function showHelp(): void {
   log(`
-${colors.bright}skills${colors.reset} - AI Agent Skills CLI
+${colors.bright}skills-lc${colors.reset} - AI Agent Skills CLI
 
 ${colors.bright}USAGE${colors.reset}
   npx skills-lc-cli <command> [options]
@@ -430,8 +437,13 @@ ${colors.bright}EXAMPLES${colors.reset}
   npx skills-lc-cli search react
   npx skills-lc-cli list
 
+${colors.bright}GLOBAL INSTALL${colors.reset}
+  npm install -g skills-lc-cli
+  skills-lc add <owner/repo/skillId>
+
 ${colors.bright}ENVIRONMENT${colors.reset}
-  SKILLS_API_URL    API base URL (default: https://skills.lc)
+  SKILLS_API_URL      API base URL (default: https://skills.lc)
+  SKILLS_API_TOKEN    API token (optional, has default)
 
 ${colors.bright}SUPPORTED AGENTS${colors.reset}
   • Claude Code    ~/.claude/CLAUDE.md

@@ -56,6 +56,13 @@ curl -X POST "https://skills.lc/api/install" \
 ### 2. GET /api/v1/skills/search
 Search and list skills with filtering and pagination.
 
+**Authentication Required:** Yes - Bearer token in Authorization header.
+
+**Headers:**
+| Header | Required | Description |
+|--------|----------|-------------|
+| Authorization | Yes | `Bearer <token>` |
+
 **Query Parameters:**
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -65,8 +72,9 @@ Search and list skills with filtering and pagination.
 | sortBy | string | No | `stars` (default) or `recent` |
 
 **Example Request:**
-```
-GET /api/v1/skills/search?q=react&limit=10
+```bash
+curl -X GET "https://skills.lc/api/v1/skills/search?q=react&limit=10" \
+  -H "Authorization: Bearer sk_live_xxxxx"
 ```
 
 **Example Response:**
@@ -106,21 +114,31 @@ GET /api/v1/skills/search?q=react&limit=10
 
 | Command | API Used |
 |---------|----------|
-| `add <owner/repo/skillId>` | `POST /api/install` |
-| `search <query>` | `GET /api/v1/skills/search` |
-| `list` | Local only |
-| `help` | Local only |
+| `skills-lc add <owner/repo/skillId>` | `POST /api/install` |
+| `skills-lc search <query>` | `GET /api/v1/skills/search` |
+| `skills-lc list` | Local only |
+| `skills-lc help` | Local only |
 
 ---
 
 ## Test Commands
 
 ```bash
-# Search
-curl "https://skills.lc/api/v1/skills/search?q=react&limit=5"
+# Search (requires token)
+curl -X GET "https://skills.lc/api/v1/skills/search?q=react&limit=5" \
+  -H "Authorization: Bearer sk_live_xxxxx"
 
-# Record install
+# Record install (no token required)
 curl -X POST "https://skills.lc/api/install" \
   -H "Content-Type: application/json" \
   -d '{"skillId": "vercel-labs/skills/find-skills", "source": "cli"}'
 ```
+
+---
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SKILLS_API_TOKEN` | No | API token (optional, CLI has default) |
+| `SKILLS_API_URL` | No | API base URL (default: https://skills.lc) |

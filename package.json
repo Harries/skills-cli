@@ -4,8 +4,8 @@
   "description": "CLI tool for installing AI Agent Skills - Works with Claude Code, Cursor, Codex and more",
   "main": "dist/index.js",
   "bin": {
-    "skills": "./dist/index.js",
-    "agent-skills": "./dist/index.js"
+    "skills-lc": "./dist/index.js",
+    "skills-lc-cli": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc",

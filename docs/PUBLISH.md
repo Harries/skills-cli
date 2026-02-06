@@ -110,7 +110,7 @@ npx skills-lc-cli add vercel-labs/agent-skills/react-best-practices
 
 # Global installation
 npm install -g skills-lc-cli
-skills add vercel-labs/agent-skills/react-best-practices
+skills-lc add vercel-labs/agent-skills/react-best-practices
 ```
 
 ## FAQ
