@@ -30,12 +30,23 @@ skills add <owner/repo/skillId>
 skills add vercel-labs/agent-skills/react-best-practices
 skills add anthropics/skills/frontend-design
 
+# Search for skills
+skills search react
+skills search "python testing"
+
 # List installed skills
 skills list
 
 # Show help
 skills help
 ```
+
+## Features
+
+- 🚀 **Zero Configuration** - Automatically detects your AI agent and installs to the right location
+- 🔍 **Search Skills** - Find skills by keyword
+- 💾 **Local & Cloud** - Works offline with GitHub, online with skills.lc API
+- 🤖 **30+ Agent Support** - Claude Code, Cursor, Codex, and many more
 
 ## Supported AI Agents
 
@@ -64,11 +75,17 @@ The CLI automatically detects your environment and installs skills to the right 
 ## Examples
 
 ```bash
+# Search for React-related skills
+npx skills-lc-cli search react
+
 # Install React best practices from Vercel
 npx skills-lc-cli add vercel-labs/agent-skills/react-best-practices
 
 # Install frontend design skill from Anthropic
 npx skills-lc-cli add anthropics/skills/frontend-design
+
+# List all installed skills
+npx skills-lc-cli list
 
 # Install with custom API endpoint
 SKILLS_API_URL=https://my-api.com npx skills-lc-cli add owner/repo/skill
@@ -77,8 +94,12 @@ SKILLS_API_URL=https://my-api.com npx skills-lc-cli add owner/repo/skill
 ## Links
 
 - [Skills Directory](https://skills.lc) - Browse all available skills
-- [Documentation](https://github.com/anthropics/skills/blob/main/docs/cli-guide.md) - Full CLI guide
+- [API Documentation](./docs/API_REQUIREMENTS.md) - Backend API specifications
 - [GitHub](https://github.com/anthropics/skills) - Source code
+
+## Contributing
+
+Contributions are welcome! See documentation in the [docs](./docs/) folder.
 
 ## License
 

@@ -5,10 +5,11 @@ import * as path from "path";
 import * as https from "https";
 import * as http from "http";
 
-// API 配置
+// API Configuration
 const API_BASE_URL = process.env.SKILLS_API_URL || "https://skills.lc";
+const API_TOKEN = process.env.SKILLS_API_TOKEN || "";
 
-// 颜色输出
+// Color output
 const colors = {
   reset: "\x1b[0m",
   bright: "\x1b[1m",
@@ -36,7 +37,7 @@ function info(message: string) {
   console.log(`${colors.cyan}ℹ${colors.reset} ${message}`);
 }
 
-// HTTP 请求封装
+// HTTP request wrapper
 function request(
   url: string,
   options: { method?: string; body?: string; headers?: Record<string, string> } = {}
@@ -71,7 +72,7 @@ function request(
   });
 }
 
-// 解析 skill 路径: owner/repo/skillId 或 owner/repo
+// Parse skill path: owner/repo/skillId or owner/repo
 function parseSkillPath(skillPath: string): { owner: string; repo: string; skillId?: string } | null {
   const parts = skillPath.split("/");
   if (parts.length === 2) {
@@ -84,66 +85,63 @@ function parseSkillPath(skillPath: string): { owner: string; repo: string; skill
 
 // Comprehensive list of skill directory locations
 const SKILL_DIRECTORIES = [
-  'skills',                    // Standard skills directory
-  'skills/.curated',           // Curated skills
-  'skills/.experimental',      // Experimental skills
-  'skills/.system',            // System skills
-  '.agents/skills',            // Agents skills (Amp, Kimi)
-  '.agent/skills',             // Agent skills (Antigravity, Replit)
-  '.augment/rules',            // Augment rules
-  '.claude/skills',            // Claude Code skills
-  '.cline/skills',             // Cline skills
-  '.codebuddy/skills',         // CodeBuddy skills
-  '.codex/skills',             // Codex skills
-  '.commandcode/skills',       // Command Code skills
-  '.continue/skills',          // Continue skills
-  '.crush/skills',             // Crush skills
-  '.cursor/skills',            // Cursor skills
-  '.factory/skills',           // Factory skills (Droid)
-  '.gemini/skills',            // Gemini CLI skills
-  '.github/skills',            // GitHub Copilot skills
-  '.goose/skills',             // Goose skills
-  '.junie/skills',             // Junie skills
-  '.iflow/skills',             // iFlow CLI skills
-  '.kilocode/skills',          // Kilo Code skills
-  '.kiro/skills',              // Kiro CLI skills
-  '.kode/skills',              // Kode skills
-  '.mcpjam/skills',            // MCPJam skills
-  '.vibe/skills',              // Mistral Vibe skills
-  '.mux/skills',               // Mux skills
-  '.opencode/skills',          // OpenCode skills
-  '.openclaude/skills',        // OpenClaude IDE skills
-  '.openhands/skills',         // OpenHands skills
-  '.pi/skills',                // Pi skills
-  '.qoder/skills',             // Qoder skills
-  '.qwen/skills',              // Qwen Code skills
-  '.roo/skills',               // Roo Code skills
-  '.trae/skills',              // Trae skills
-  '.windsurf/skills',          // Windsurf skills
-  '.zencoder/skills',          // Zencoder skills
-  '.neovate/skills',           // Neovate skills
-  '.pochi/skills',             // Pochi skills
-  '.adal/skills',              // AdaL skills
-  'plugins',                   // Legacy plugins directory
+  'skills',
+  'skills/.curated',
+  'skills/.experimental',
+  'skills/.system',
+  '.agents/skills',
+  '.agent/skills',
+  '.augment/rules',
+  '.claude/skills',
+  '.cline/skills',
+  '.codebuddy/skills',
+  '.codex/skills',
+  '.commandcode/skills',
+  '.continue/skills',
+  '.crush/skills',
+  '.cursor/skills',
+  '.factory/skills',
+  '.gemini/skills',
+  '.github/skills',
+  '.goose/skills',
+  '.junie/skills',
+  '.iflow/skills',
+  '.kilocode/skills',
+  '.kiro/skills',
+  '.kode/skills',
+  '.mcpjam/skills',
+  '.vibe/skills',
+  '.mux/skills',
+  '.opencode/skills',
+  '.openclaude/skills',
+  '.openhands/skills',
+  '.pi/skills',
+  '.qoder/skills',
+  '.qwen/skills',
+  '.roo/skills',
+  '.trae/skills',
+  '.windsurf/skills',
+  '.zencoder/skills',
+  '.neovate/skills',
+  '.pochi/skills',
+  '.adal/skills',
+  'plugins',
 ];
 
 // Build comprehensive list of possible paths for a skillId
 function buildPossiblePaths(skillId?: string): string[] {
-  const paths: string[] = ['SKILL.md']; // Root directory
+  const paths: string[] = ['SKILL.md'];
 
   if (skillId) {
-    // Direct skillId paths
     paths.push(`${skillId}/SKILL.md`);
     paths.push(`${skillId}.md`);
 
-    // Paths for each skill directory
     for (const dir of SKILL_DIRECTORIES) {
       paths.push(`${dir}/${skillId}/SKILL.md`);
       paths.push(`${dir}/${skillId}.md`);
     }
   }
 
-  // Add directory root SKILL.md for each directory
   for (const dir of SKILL_DIRECTORIES) {
     paths.push(`${dir}/SKILL.md`);
   }
@@ -151,7 +149,7 @@ function buildPossiblePaths(skillId?: string): string[] {
   return paths;
 }
 
-// 从 GitHub 获取 SKILL.md 内容
+// Fetch SKILL.md content from GitHub
 async function fetchSkillFromGitHub(
   owner: string,
   repo: string,
@@ -166,7 +164,6 @@ async function fetchSkillFromGitHub(
       try {
         const res = await request(url);
         if (res.status === 200) {
-          // Determine skillId from path if not provided
           const resolvedSkillId = skillId || extractSkillIdFromPath(skillPath) || repo;
           return { content: res.data, skillId: resolvedSkillId };
         }
@@ -180,18 +177,16 @@ async function fetchSkillFromGitHub(
 
 // Extract skillId from path like "skills/my-skill/SKILL.md" -> "my-skill"
 function extractSkillIdFromPath(path: string): string | null {
-  // Try to extract from paths like "dir/skillId/SKILL.md"
   const match = path.match(/\/([^/]+)\/SKILL\.md$/);
   if (match) return match[1];
   
-  // Try to extract from paths like "dir/skillId.md"
   const mdMatch = path.match(/\/([^/]+)\.md$/);
   if (mdMatch && mdMatch[1] !== 'SKILL') return mdMatch[1];
   
   return null;
 }
 
-// 记录安装到 API
+// Record install to API
 async function recordInstall(skillId: string, source: string): Promise<boolean> {
   try {
     const res = await request(`${API_BASE_URL}/api/install`, {
@@ -204,7 +199,7 @@ async function recordInstall(skillId: string, source: string): Promise<boolean> 
   }
 }
 
-// 检测 Agent 类型
+// Detect Agent type
 function detectAgent(): { type: string; configPath: string } | null {
   const homeDir = process.env.HOME || process.env.USERPROFILE || "";
   const cwd = process.cwd();
@@ -227,16 +222,15 @@ function detectAgent(): { type: string; configPath: string } | null {
     return { type: "codex", configPath: codexConfig };
   }
 
-  // 默认使用当前目录的 .skills 文件夹
+  // Default to local .skills folder
   return { type: "local", configPath: path.join(cwd, ".skills") };
 }
 
-// 安装 Skill
+// Install Skill
 async function installSkill(skillPath: string): Promise<void> {
   log("");
   info(`Installing skill: ${colors.bright}${skillPath}${colors.reset}`);
 
-  // 解析路径
   const parsed = parseSkillPath(skillPath);
   if (!parsed) {
     error("Invalid skill path. Use format: owner/repo or owner/repo/skillId");
@@ -246,7 +240,6 @@ async function installSkill(skillPath: string): Promise<void> {
   const { owner, repo, skillId } = parsed;
   const source = `${owner}/${repo}`;
 
-  // 从 GitHub 获取 Skill 内容
   info("Fetching skill from GitHub...");
   const skill = await fetchSkillFromGitHub(owner, repo, skillId);
 
@@ -257,7 +250,6 @@ async function installSkill(skillPath: string): Promise<void> {
 
   success(`Found skill: ${skill.skillId}`);
 
-  // 检测 Agent
   const agent = detectAgent();
   if (!agent) {
     error("Could not detect AI agent configuration");
@@ -266,15 +258,12 @@ async function installSkill(skillPath: string): Promise<void> {
 
   info(`Detected agent: ${colors.bright}${agent.type}${colors.reset}`);
 
-  // 确保目录存在
   const configDir = path.dirname(agent.configPath);
   if (!fs.existsSync(configDir)) {
     fs.mkdirSync(configDir, { recursive: true });
   }
 
-  // 写入 Skill 内容
   if (agent.type === "local") {
-    // 本地模式：保存到 .skills 目录
     const skillFile = path.join(agent.configPath, `${skill.skillId}.md`);
     if (!fs.existsSync(agent.configPath)) {
       fs.mkdirSync(agent.configPath, { recursive: true });
@@ -282,17 +271,14 @@ async function installSkill(skillPath: string): Promise<void> {
     fs.writeFileSync(skillFile, skill.content, "utf-8");
     success(`Saved to ${skillFile}`);
   } else {
-    // Agent 模式：追加到配置文件
     const separator = "\n\n---\n\n";
     const header = `<!-- Skill: ${skill.skillId} from ${source} -->\n`;
     const content = header + skill.content;
 
     if (fs.existsSync(agent.configPath)) {
       const existing = fs.readFileSync(agent.configPath, "utf-8");
-      // 检查是否已安装
       if (existing.includes(`Skill: ${skill.skillId}`)) {
         info("Skill already installed, updating...");
-        // 替换现有内容
         const regex = new RegExp(
           `<!-- Skill: ${skill.skillId} from [^>]+ -->\\n[\\s\\S]*?(?=<!-- Skill:|$)`,
           "g"
@@ -308,7 +294,6 @@ async function installSkill(skillPath: string): Promise<void> {
     success(`Installed to ${agent.configPath}`);
   }
 
-  // 记录安装统计
   info("Recording install...");
   const recorded = await recordInstall(skill.skillId, source);
   if (recorded) {
@@ -322,7 +307,7 @@ async function installSkill(skillPath: string): Promise<void> {
   log("");
 }
 
-// 列出已安装的 Skills
+// List installed Skills
 function listSkills(): void {
   const agent = detectAgent();
   if (!agent) {
@@ -371,7 +356,60 @@ function listSkills(): void {
   log("");
 }
 
-// 显示帮助
+// Search Skills
+async function searchSkills(query: string): Promise<void> {
+  log("");
+  info(`Searching for: ${colors.bright}${query}${colors.reset}`);
+
+  try {
+    const res = await request(`${API_BASE_URL}/api/v1/skills/search?q=${encodeURIComponent(query)}&limit=20`);
+    
+    if (res.status !== 200) {
+      error("Failed to search skills");
+      return;
+    }
+
+    const response = JSON.parse(res.data);
+    
+    if (!response.success || !response.data?.skills || response.data.skills.length === 0) {
+      info("No skills found");
+      return;
+    }
+
+    const { skills, pagination } = response.data;
+
+    log("");
+    log(`Found ${colors.bright}${pagination.total}${colors.reset} skills (showing ${skills.length}):`);
+    log("");
+
+    skills.forEach((skill: any) => {
+      log(`${colors.green}●${colors.reset} ${colors.bright}${skill.name}${colors.reset}`);
+      log(`  ${colors.dim}${skill.source}/${skill.skillId}${colors.reset}`);
+      if (skill.description) {
+        log(`  ${skill.description}`);
+      }
+      if (skill.author) {
+        log(`  ${colors.cyan}Author:${colors.reset} ${skill.author}`);
+      }
+      if (skill.tags && skill.tags.length > 0) {
+        log(`  ${colors.cyan}Tags:${colors.reset} ${skill.tags.join(', ')}`);
+      }
+      log(`  ${colors.yellow}★${colors.reset} ${skill.stars} stars`);
+      log("");
+    });
+
+    if (pagination.hasMore) {
+      log(`${colors.dim}Showing page ${pagination.page} of ${pagination.totalPages}${colors.reset}`);
+    }
+    log(`${colors.dim}To install: npx skills-lc-cli add <source/skillId>${colors.reset}`);
+    log("");
+  } catch (err) {
+    error("Search failed. API may be unavailable.");
+    info("Try browsing skills at https://skills.lc");
+  }
+}
+
+// Show help
 function showHelp(): void {
   log(`
 ${colors.bright}skills${colors.reset} - AI Agent Skills CLI
@@ -383,11 +421,13 @@ ${colors.bright}COMMANDS${colors.reset}
   add <owner/repo/skillId>    Install a skill from GitHub
   add <owner/repo>            Install default skill from a repo
   list                        List installed skills
+  search <query>              Search for skills
   help                        Show this help message
 
 ${colors.bright}EXAMPLES${colors.reset}
   npx skills-lc-cli add vercel-labs/agent-skills/react-best-practices
   npx skills-lc-cli add anthropics/skills/frontend-design
+  npx skills-lc-cli search react
   npx skills-lc-cli list
 
 ${colors.bright}ENVIRONMENT${colors.reset}
@@ -401,7 +441,7 @@ ${colors.bright}SUPPORTED AGENTS${colors.reset}
 `);
 }
 
-// 主函数
+// Main function
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0];
@@ -422,6 +462,15 @@ async function main(): Promise<void> {
       listSkills();
       break;
 
+    case "search":
+      if (!args[1]) {
+        error("Please specify a search query");
+        log("Usage: npx skills-lc-cli search <query>");
+        process.exit(1);
+      }
+      await searchSkills(args[1]);
+      break;
+
     case "help":
     case "--help":
     case "-h":
@@ -440,4 +489,3 @@ main().catch((err) => {
   error(err.message);
   process.exit(1);
 });
-
