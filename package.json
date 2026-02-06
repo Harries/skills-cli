@@ -1,0 +1,53 @@
+{
+  "name": "skills-lc-cli",
+  "version": "1.0.0",
+  "description": "CLI tool for installing AI Agent Skills - Works with Claude Code, Cursor, Codex and more",
+  "main": "dist/index.js",
+  "bin": {
+    "skills": "./dist/index.js",
+    "agent-skills": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "skills",
+    "cli",
+    "claude",
+    "claude-code",
+    "cursor",
+    "codex",
+    "ai-agent",
+    "llm",
+    "prompt",
+    "mcp"
+  ],
+  "author": "Skills Platform",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anthropics/skills.git",
+    "directory": "cli"
+  },
+  "homepage": "https://skills.lc",
+  "bugs": {
+    "url": "https://github.com/anthropics/skills/issues"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "tsx": "^4.19.0",
+    "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ]
+}
+
