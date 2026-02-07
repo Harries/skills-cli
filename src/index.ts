@@ -5,6 +5,16 @@ import * as path from "path";
 import * as https from "https";
 import * as http from "http";
 
+// Read package.json for version
+const packageJsonPath = path.join(__dirname, '../package.json');
+let PACKAGE_VERSION = '1.0.0';
+try {
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+  PACKAGE_VERSION = packageJson.version || '1.0.0';
+} catch {
+  // Fallback version if package.json cannot be read
+}
+
 // API Configuration
 const API_BASE_URL = process.env.SKILLS_API_URL || "https://skills.lc";
 const API_TOKEN = process.env.SKILLS_API_TOKEN || "sk_live_XY2_nCklnKAL7nDyCLLEVyLe6Q1g_ebGDjfUk6i-fvY";
@@ -1557,10 +1567,15 @@ async function searchSkills(query: string, page: number = 1, options: InstallOpt
   }
 }
 
+// Show version
+function showVersion(): void {
+  log(`skills-lc-cli version ${PACKAGE_VERSION}`);
+}
+
 // Show help
 function showHelp(): void {
   log(`
-${colors.bright}skills-lc${colors.reset} - AI Agent Skills CLI
+${colors.bright}skills-lc${colors.reset} - AI Agent Skills CLI (v${PACKAGE_VERSION})
 
 ${colors.bright}USAGE${colors.reset}
   npx skills-lc-cli add <input> [options]
@@ -1588,6 +1603,7 @@ ${colors.bright}COMMANDS${colors.reset}
   add <owner/repo>            Install default skill from a repo
   list                        List installed skills
   search <query>              Search for skills
+  version                     Show CLI version
   help                        Show this help message
 
 ${colors.bright}EXAMPLES${colors.reset}
@@ -1699,6 +1715,12 @@ async function main(): Promise<void> {
       } else {
         await searchSkills(args[1]);
       }
+      break;
+
+    case "version":
+    case "--version":
+    case "-v":
+      showVersion();
       break;
 
     case "help":
