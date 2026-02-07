@@ -457,6 +457,79 @@ async function recordInstall(skillId: string, source: string, githubUrl?: string
   }
 }
 
+// Download entire skill directory from GitHub
+async function downloadSkillDirectory(
+  owner: string,
+  repo: string,
+  branch: string,
+  skillDir: string,
+  targetDir: string
+): Promise<boolean> {
+  try {
+    // Get directory tree from GitHub API
+    const url = `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`;
+    const res = await request(url, {
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'skills-cli/1.0.0'
+      }
+    });
+    
+    if (res.status !== 200) {
+      return false;
+    }
+    
+    const data = JSON.parse(res.data);
+    if (!data.tree) {
+      return false;
+    }
+    
+    // Filter files in the skill directory
+    const prefix = skillDir ? `${skillDir}/` : '';
+    const files = data.tree.filter((item: any) => 
+      item.type === 'blob' && 
+      item.path.startsWith(prefix) &&
+      item.path !== prefix // Exclude the directory itself
+    );
+    
+    if (files.length === 0) {
+      return false;
+    }
+    
+    debug(`Found ${files.length} files in ${skillDir}`);
+    
+    // Download each file
+    for (const file of files) {
+      const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${file.path}`;
+      try {
+        const fileRes = await request(rawUrl);
+        if (fileRes.status === 200) {
+          // Calculate relative path within skill directory
+          const relativePath = file.path.substring(prefix.length);
+          const targetPath = path.join(targetDir, relativePath);
+          
+          // Create subdirectories if needed
+          const targetFileDir = path.dirname(targetPath);
+          if (!fs.existsSync(targetFileDir)) {
+            fs.mkdirSync(targetFileDir, { recursive: true });
+          }
+          
+          // Write file
+          fs.writeFileSync(targetPath, fileRes.data, 'utf-8');
+          debug(`Downloaded: ${relativePath}`);
+        }
+      } catch (err) {
+        debug(`Failed to download ${file.path}: ${err}`);
+      }
+    }
+    
+    return true;
+  } catch (err) {
+    debug(`Error downloading directory: ${err}`);
+    return false;
+  }
+}
+
 // Install a single skill and record it
 async function installSingleSkill(
   skill: { content: string; skillId: string; url?: string },
@@ -471,10 +544,31 @@ async function installSingleSkill(
     fs.mkdirSync(configDir, { recursive: true });
   }
 
-  // All agents use directory-based storage now
-  const skillFile = path.join(configDir, `${skill.skillId}.md`);
-  fs.writeFileSync(skillFile, skill.content, "utf-8");
-  success(`Saved to ${skillFile}`);
+  // Create skill directory
+  const skillDir = path.join(configDir, skill.skillId);
+  if (!fs.existsSync(skillDir)) {
+    fs.mkdirSync(skillDir, { recursive: true });
+  }
+
+  // Try to download entire directory from GitHub
+  let downloadedDirectory = false;
+  if (githubUrl) {
+    const urlMatch = githubUrl.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
+    if (urlMatch) {
+      const [, owner, repo, branch, dirPath] = urlMatch;
+      debug(`Downloading directory from GitHub: ${owner}/${repo}/${dirPath}`);
+      downloadedDirectory = await downloadSkillDirectory(owner, repo, branch, dirPath, skillDir);
+    }
+  }
+  
+  if (downloadedDirectory) {
+    success(`Downloaded skill directory to ${skillDir}`);
+  } else {
+    // Fallback: just save SKILL.md file
+    const skillFile = path.join(skillDir, 'SKILL.md');
+    fs.writeFileSync(skillFile, skill.content, "utf-8");
+    success(`Saved to ${skillFile}`);
+  }
 
   // Record install
   debug("Recording install...");
@@ -569,22 +663,25 @@ function detectAgent(): { type: string; configPath: string } | null {
   const homeDir = process.env.HOME || process.env.USERPROFILE || "";
   const cwd = process.cwd();
 
-  // Claude Code / Anthropic
+  // Check for Claude Code / Anthropic (use new skills directory)
+  const claudeSkillsDir = path.join(homeDir, ".claude", "skills");
   const claudeConfig = path.join(homeDir, ".claude", "CLAUDE.md");
-  if (fs.existsSync(path.dirname(claudeConfig))) {
-    return { type: "claude", configPath: claudeConfig };
+  if (fs.existsSync(path.join(homeDir, ".claude"))) {
+    return { type: "claude", configPath: claudeSkillsDir };
   }
 
-  // Cursor
+  // Check for Cursor (use new skills directory)
+  const cursorSkillsDir = path.join(cwd, ".cursor", "skills");
   const cursorConfig = path.join(cwd, ".cursor", "rules");
-  if (fs.existsSync(path.dirname(cursorConfig))) {
-    return { type: "cursor", configPath: path.join(cursorConfig, "skill.mdc") };
+  if (fs.existsSync(path.join(cwd, ".cursor"))) {
+    return { type: "cursor", configPath: cursorSkillsDir };
   }
 
-  // Codex
+  // Check for Codex (use new skills directory)
+  const codexSkillsDir = path.join(homeDir, ".codex", "skills");
   const codexConfig = path.join(homeDir, ".codex", "instructions.md");
-  if (fs.existsSync(path.dirname(codexConfig))) {
-    return { type: "codex", configPath: codexConfig };
+  if (fs.existsSync(path.join(homeDir, ".codex"))) {
+    return { type: "codex", configPath: codexSkillsDir };
   }
 
   // Default to local .skills folder
@@ -702,15 +799,7 @@ async function installSkill(input: string, options: InstallOptions = {}, skillIn
           debug(`Found ${foundSkills.length} skill(s) in repository`);
           foundSkills.forEach(s => debug(`  - ${s.name} (${s.dir})`));
           
-          // Detect agent first (needed for multiple skills installation)
-          const agent = detectAgent();
-          if (!agent) {
-            error("Could not detect AI agent configuration");
-            process.exit(1);
-          }
-          
           // If skillId specified, match by name
-          let targetSkill = foundSkills[0]; // Default to first
           if (skillId) {
             const directSkillId = skillId.split('/').pop();
             const matched = foundSkills.find(s => 
@@ -718,88 +807,186 @@ async function installSkill(input: string, options: InstallOptions = {}, skillIn
               s.path.includes(`/${directSkillId}/`)
             );
             if (matched) {
-              targetSkill = matched;
-            } else {
-              info(`Skill "${directSkillId}" not found, available skills:`);
-              foundSkills.forEach(s => info(`  - ${s.name}`));
-              process.exit(1);
-            }
-            
-            // Install single skill
-            const branches = ['main', 'master'];
-            for (const branch of branches) {
-              const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${targetSkill.path}`;
-              try {
-                const res = await request(rawUrl);
-                if (res.status === 200) {
-                  const githubUrl = `https://github.com/${owner}/${repo}/tree/${branch}/${targetSkill.dir}`;
-                  skill = { content: res.data, skillId: targetSkill.name, url: githubUrl };
-                  source = `${owner}/${repo}`;
-                  reportSkillId = skillId;
-                  break;
-                }
-              } catch {
-                // Try next branch
-              }
-            }
-          } else if (foundSkills.length > 1) {
-            // Multiple skills found - install all
-            info(`Found ${foundSkills.length} skills in this repository:`);
-            foundSkills.forEach(s => info(`  - ${s.name}`));
-            info("");
-            info("Installing all skills...");
-            
-            // Install all skills
-            for (const targetSkill of foundSkills) {
+              // Install single matched skill
               const branches = ['main', 'master'];
-              let installed = false;
-              
               for (const branch of branches) {
-                const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${targetSkill.path}`;
+                const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${matched.path}`;
                 try {
                   const res = await request(rawUrl);
                   if (res.status === 200) {
-                    // Use tree URL (directory) not blob URL (file)
-                    const githubUrl = `https://github.com/${owner}/${repo}/tree/${branch}/${targetSkill.dir}`;
-                    const skillContent = { content: res.data, skillId: targetSkill.name, url: githubUrl };
-                    
-                    // Install this skill
-                    await installSingleSkill(skillContent, `${owner}/${repo}`, githubUrl, agent);
-                    installed = true;
+                    const githubUrl = `https://github.com/${owner}/${repo}/tree/${branch}/${matched.dir}`;
+                    skill = { content: res.data, skillId: matched.name, url: githubUrl };
+                    source = `${owner}/${repo}`;
+                    reportSkillId = skillId;
+                    reportGithubUrl = githubUrl;
                     break;
                   }
                 } catch {
                   // Try next branch
                 }
               }
-              
-              if (!installed) {
-                info(`Could not fetch: ${targetSkill.name}`);
+            } else {
+              info(`Skill "${directSkillId}" not found, available skills:`);
+              foundSkills.forEach(s => info(`  - ${s.name}`));
+              process.exit(1);
+            }
+          } else {
+            // Multiple skills found, no specific skill requested
+            info(`Found ${foundSkills.length} skills in this repository:`);
+            foundSkills.forEach(s => info(`  - ${s.name}`));
+            info("");
+            
+            // Prompt user to select skills
+            log(`${colors.bright}Which skill(s) to install?${colors.reset}`);
+            log(`${colors.dim}Enter numbers separated by commas (e.g., 1,3,5) or 'all' for all skills${colors.reset}`);
+            log("");
+            
+            foundSkills.forEach((s, index) => {
+              log(`  [${index + 1}] ${s.name}`);
+            });
+            
+            log(`  [all] All skills`);
+            log(`  [q] Cancel`);
+            log("");
+            
+            const skillChoice = await prompt("Select skill(s): ");
+            
+            if (skillChoice === 'q' || skillChoice === '') {
+              log("Installation cancelled");
+              process.exit(0);
+            }
+            
+            let selectedSkills: typeof foundSkills = [];
+            
+            if (skillChoice.toLowerCase() === 'all') {
+              selectedSkills = [...foundSkills];
+            } else {
+              const choices = skillChoice.split(',').map(s => s.trim());
+              for (const choice of choices) {
+                const num = parseInt(choice);
+                if (num >= 1 && num <= foundSkills.length) {
+                  selectedSkills.push(foundSkills[num - 1]);
+                } else {
+                  error(`Invalid selection: ${choice}`);
+                  process.exit(1);
+                }
               }
             }
             
-            log("");
-            success(`${colors.bright}All skills installed successfully!${colors.reset}`);
-            log("");
-            return;
-          } else {
-            // Only one skill found - install it
-            const branches = ['main', 'master'];
-            for (const branch of branches) {
-              const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${targetSkill.path}`;
-              try {
-                const res = await request(rawUrl);
-                if (res.status === 200) {
-                  const githubUrl = `https://github.com/${owner}/${repo}/tree/${branch}/${targetSkill.dir}`;
-                  skill = { content: res.data, skillId: targetSkill.name, url: githubUrl };
-                  source = `${owner}/${repo}`;
-                  reportGithubUrl = githubUrl;
-                  break;
-                }
-              } catch {
-                // Try next branch
-              }
+            if (selectedSkills.length === 0) {
+              error("No skills selected");
+              process.exit(1);
             }
+            
+            // Prompt for agent and location
+            if (!options.agents || options.agents.length === 0) {
+              log("");
+              log(`${colors.bright}Install to which agent(s)?${colors.reset}`);
+              log(`${colors.dim}Enter numbers separated by commas (e.g., 1,3,5) or 'all' for all agents${colors.reset}`);
+              log("");
+              
+              const availableAgents = Object.keys(AGENT_CONFIGS);
+              const agentList: string[] = [];
+              
+              availableAgents.forEach((agent, index) => {
+                agentList.push(agent);
+                log(`  [${index + 1}] ${agent}`);
+              });
+              
+              log(`  [all] All agents`);
+              log(`  [q] Cancel`);
+              log("");
+              
+              const agentChoice = await prompt("Select agent(s): ");
+              
+              if (agentChoice === 'q' || agentChoice === '') {
+                log("Installation cancelled");
+                process.exit(0);
+              }
+              
+              let selectedAgents: string[] = [];
+              
+              if (agentChoice.toLowerCase() === 'all') {
+                selectedAgents = [...agentList];
+              } else {
+                const choices = agentChoice.split(',').map(s => s.trim());
+                for (const choice of choices) {
+                  const num = parseInt(choice);
+                  if (num >= 1 && num <= agentList.length) {
+                    selectedAgents.push(agentList[num - 1]);
+                  } else {
+                    error(`Invalid selection: ${choice}`);
+                    process.exit(1);
+                  }
+                }
+              }
+              
+              if (selectedAgents.length === 0) {
+                error("No agents selected");
+                process.exit(1);
+              }
+              
+              // Ask for project vs global
+              log("");
+              log(`${colors.bright}Installation location:${colors.reset}`);
+              log(`  [1] Project (e.g., .cursor/skills/)`);
+              log(`  [2] Global (e.g., ~/.cursor/skills/)`);
+              log("");
+              
+              const locationChoice = await prompt("Select location [1]: ");
+              const useGlobal = locationChoice === '2';
+              
+              // Install to all selected agents
+              log("");
+              info(`Installing ${selectedSkills.length} skill(s) to ${selectedAgents.length} agent(s)...`);
+              
+              for (const targetSkill of selectedSkills) {
+                const branches = ['main', 'master'];
+                let skillContent: { content: string; skillId: string; url?: string } | null = null;
+                
+                for (const branch of branches) {
+                  const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${targetSkill.path}`;
+                  try {
+                    const res = await request(rawUrl);
+                    if (res.status === 200) {
+                      const githubUrl = `https://github.com/${owner}/${repo}/tree/${branch}/${targetSkill.dir}`;
+                      skillContent = { content: res.data, skillId: targetSkill.name, url: githubUrl };
+                      break;
+                    }
+                  } catch {
+                    // Try next branch
+                  }
+                }
+                
+                if (skillContent) {
+                  for (const agent of selectedAgents) {
+                    try {
+                      const agentConfig = getAgent(agent, useGlobal);
+                      if (!agentConfig) continue;
+                      
+                      log("");
+                      info(`Installing ${colors.bright}${skillContent.skillId}${colors.reset} to ${colors.bright}${agent}${colors.reset}...`);
+                      await installSingleSkill(skillContent, `${owner}/${repo}`, skillContent.url || '', agentConfig);
+                    } catch (err) {
+                      error(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+                    }
+                  }
+                } else {
+                  error(`Could not fetch: ${targetSkill.name}`);
+                }
+              }
+              
+              log("");
+              success(`${colors.bright}Installation complete!${colors.reset}`);
+              log("");
+              return;
+            }
+            
+            // If agent was specified, just ask for location
+            // (This path would require additional handling - for now, treat as error)
+            error("Multiple skills found. Please specify which skill to install.");
+            foundSkills.forEach(s => info(`  - ${s.name}`));
+            process.exit(1);
           }
         }
       }
@@ -814,17 +1001,143 @@ async function installSkill(input: string, options: InstallOptions = {}, skillIn
 
   success(`Found skill: ${skill.skillId}`);
 
-  const agent = getAgent(options.agents?.[0], options.global);
+  // If no agent specified, prompt for interactive selection
+  let finalOptions = { ...options };
+  
+  if (!options.agents || options.agents.length === 0) {
+    log("");
+    log(`${colors.bright}Install to which agent(s)?${colors.reset}`);
+    log(`${colors.dim}Enter numbers separated by commas (e.g., 1,3,5) or 'all' for all agents${colors.reset}`);
+    log("");
+    
+    // List all available agents
+    const availableAgents = Object.keys(AGENT_CONFIGS);
+    const agentList: string[] = [];
+    
+    availableAgents.forEach((agent, index) => {
+      agentList.push(agent);
+      log(`  [${index + 1}] ${agent}`);
+    });
+    
+    log(`  [all] All agents`);
+    log(`  [q] Cancel`);
+    log("");
+    
+    const agentChoice = await prompt("Select agent(s): ");
+    
+    if (agentChoice === 'q' || agentChoice === '') {
+      log("Installation cancelled");
+      process.exit(0);
+    }
+    
+    let selectedAgents: string[] = [];
+    
+    if (agentChoice.toLowerCase() === 'all') {
+      selectedAgents = [...agentList];
+    } else {
+      // Parse comma-separated numbers
+      const choices = agentChoice.split(',').map(s => s.trim());
+      for (const choice of choices) {
+        const num = parseInt(choice);
+        if (num >= 1 && num <= agentList.length) {
+          selectedAgents.push(agentList[num - 1]);
+        } else {
+          error(`Invalid selection: ${choice}`);
+          process.exit(1);
+        }
+      }
+    }
+    
+    if (selectedAgents.length === 0) {
+      error("No agents selected");
+      process.exit(1);
+    }
+    
+    // Ask for project vs global
+    log("");
+    log(`${colors.bright}Installation location:${colors.reset}`);
+    log(`  [1] Project (e.g., .cursor/skills/)`);
+    log(`  [2] Global (e.g., ~/.cursor/skills/)`);
+    log("");
+    
+    const locationChoice = await prompt("Select location [1]: ");
+    const useGlobal = locationChoice === '2';
+    
+    // Install to all selected agents
+    log("");
+    info(`Installing to ${selectedAgents.length} agent(s)...`);
+    
+    for (const agent of selectedAgents) {
+      log("");
+      info(`Installing to ${colors.bright}${agent}${colors.reset}...`);
+      
+      try {
+        const agentConfig = getAgent(agent, useGlobal);
+        if (!agentConfig) {
+          error(`Could not configure agent: ${agent}`);
+          continue;
+        }
+        
+        const configDir = agentConfig.configPath;
+        if (!fs.existsSync(configDir)) {
+          fs.mkdirSync(configDir, { recursive: true });
+        }
+        
+        // Create skill directory
+        const skillDir = path.join(configDir, skill.skillId);
+        if (!fs.existsSync(skillDir)) {
+          fs.mkdirSync(skillDir, { recursive: true });
+        }
+
+        // Try to download entire directory from GitHub
+        let downloadedDirectory = false;
+        if (reportGithubUrl) {
+          const urlMatch = reportGithubUrl.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
+          if (urlMatch) {
+            const [, owner, repo, branch, dirPath] = urlMatch;
+            debug(`Downloading directory from GitHub: ${owner}/${repo}/${dirPath}`);
+            downloadedDirectory = await downloadSkillDirectory(owner, repo, branch, dirPath, skillDir);
+          }
+        }
+        
+        if (downloadedDirectory) {
+          success(`Downloaded skill directory to ${skillDir}`);
+        } else {
+          // Fallback: just save SKILL.md file
+          const skillFile = path.join(skillDir, 'SKILL.md');
+          fs.writeFileSync(skillFile, skill.content, "utf-8");
+          success(`Saved to ${skillFile}`);
+        }
+        
+        // Record install for each agent
+        debug("Recording install...");
+        const recorded = await recordInstall(reportSkillId, source, reportGithubUrl);
+        if (recorded) {
+          debug("Install recorded successfully");
+        }
+      } catch (err) {
+        error(`Failed to install to ${agent}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    
+    log("");
+    success(`${colors.bright}Installed to ${selectedAgents.length} agent(s) successfully!${colors.reset}`);
+    log("");
+    return;
+  }
+
+  // Single agent installation (when agent was pre-specified)
+  const agent = getAgent(finalOptions.agents?.[0], finalOptions.global);
   if (!agent) {
     error("Could not detect AI agent configuration");
     process.exit(1);
   }
 
   info(`Target agent: ${colors.bright}${agent.type}${colors.reset}`);
-  if (options.agents?.[0]) {
-    debug(`Using specified agent: ${options.agents[0]}`);
+  if (finalOptions.agents?.[0]) {
+    debug(`Using specified agent: ${finalOptions.agents[0]}`);
   }
-  if (options.global) {
+  if (finalOptions.global) {
     debug(`Using global installation path`);
   }
 
@@ -833,10 +1146,31 @@ async function installSkill(input: string, options: InstallOptions = {}, skillIn
     fs.mkdirSync(configDir, { recursive: true });
   }
 
-  // All agents use directory-based storage now
-  const skillFile = path.join(configDir, `${skill.skillId}.md`);
-  fs.writeFileSync(skillFile, skill.content, "utf-8");
-  success(`Installed to ${skillFile}`);
+  // Create skill directory
+  const skillDir = path.join(configDir, skill.skillId);
+  if (!fs.existsSync(skillDir)) {
+    fs.mkdirSync(skillDir, { recursive: true });
+  }
+
+  // Try to download entire directory from GitHub
+  let downloadedDirectory = false;
+  if (reportGithubUrl) {
+    const urlMatch = reportGithubUrl.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
+    if (urlMatch) {
+      const [, owner, repo, branch, dirPath] = urlMatch;
+      debug(`Downloading directory from GitHub: ${owner}/${repo}/${dirPath}`);
+      downloadedDirectory = await downloadSkillDirectory(owner, repo, branch, dirPath, skillDir);
+    }
+  }
+  
+  if (downloadedDirectory) {
+    success(`Downloaded skill directory to ${skillDir}`);
+  } else {
+    // Fallback: just save SKILL.md file
+    const skillFile = path.join(skillDir, 'SKILL.md');
+    fs.writeFileSync(skillFile, skill.content, "utf-8");
+    success(`Saved to ${skillFile}`);
+  }
 
   info("Recording install...");
   const recorded = await recordInstall(reportSkillId, source, reportGithubUrl);
@@ -853,15 +1187,57 @@ async function installSkill(input: string, options: InstallOptions = {}, skillIn
 
 // List installed Skills with interactive delete option
 async function listSkills(): Promise<void> {
-  const agent = detectAgent();
+  // First, ask which agent to list
+  log("");
+  log(`${colors.bright}List skills for which agent?${colors.reset}`);
+  log("");
+  
+  const availableAgents = Object.keys(AGENT_CONFIGS);
+  const agentList: string[] = [];
+  
+  availableAgents.forEach((agent, index) => {
+    agentList.push(agent);
+    log(`  [${index + 1}] ${agent}`);
+  });
+  
+  log(`  [q] Cancel`);
+  log("");
+  
+  const agentChoice = await prompt("Select agent: ");
+  
+  if (agentChoice === 'q' || agentChoice === '') {
+    log("Cancelled");
+    return;
+  }
+  
+  const agentNum = parseInt(agentChoice);
+  if (agentNum < 1 || agentNum > agentList.length) {
+    error("Invalid selection");
+    return;
+  }
+  
+  const selectedAgentType = agentList[agentNum - 1];
+  
+  // Ask for project vs global
+  log("");
+  log(`${colors.bright}List skills from:${colors.reset}`);
+  log(`  [1] Project (e.g., .${selectedAgentType}/skills/)`);
+  log(`  [2] Global (e.g., ~/.${selectedAgentType}/skills/)`);
+  log("");
+  
+  const locationChoice = await prompt("Select location [1]: ");
+  const useGlobal = locationChoice === '2';
+  
+  const agent = getAgent(selectedAgentType, useGlobal);
   if (!agent) {
-    error("Could not detect AI agent configuration");
-    process.exit(1);
+    error("Could not configure agent");
+    return;
   }
 
   log("");
   info(`Agent: ${colors.bright}${agent.type}${colors.reset}`);
-  info(`Config: ${agent.configPath}`);
+  info(`Location: ${colors.bright}${useGlobal ? 'Global' : 'Project'}${colors.reset}`);
+  info(`Path: ${agent.configPath}`);
   log("");
 
   let installedSkills: Array<{ id: string; name: string }> = [];
@@ -872,15 +1248,21 @@ async function listSkills(): Promise<void> {
     return;
   }
   
-  const files = fs.readdirSync(agent.configPath).filter((f) => f.endsWith(".md"));
-  if (files.length === 0) {
+  // List all subdirectories (each is a skill)
+  const items = fs.readdirSync(agent.configPath);
+  const skillDirs = items.filter(item => {
+    const itemPath = path.join(agent.configPath, item);
+    return fs.statSync(itemPath).isDirectory();
+  });
+  
+  if (skillDirs.length === 0) {
     info("No skills installed yet.");
     return;
   }
   
-  installedSkills = files.map((f) => ({
-    id: f.replace(".md", ""),
-    name: f.replace(".md", "")
+  installedSkills = skillDirs.map((dir) => ({
+    id: dir,
+    name: dir
   }));
 
   // Display skills with numbers
@@ -914,13 +1296,14 @@ async function listSkills(): Promise<void> {
     // Confirm deletion
     const confirm = await prompt(`Delete "${selectedSkill.name}"? (y/N): `);
     if (confirm.toLowerCase() === 'y') {
-      // Delete the skill
-      const skillFile = path.join(agent.configPath, `${selectedSkill.id}.md`);
-      if (fs.existsSync(skillFile)) {
-        fs.unlinkSync(skillFile);
+      // Delete the skill directory
+      const skillDir = path.join(agent.configPath, selectedSkill.id);
+      if (fs.existsSync(skillDir)) {
+        // Recursively delete directory
+        fs.rmSync(skillDir, { recursive: true, force: true });
         success(`Deleted: ${selectedSkill.name}`);
       } else {
-        error("Skill file not found");
+        error("Skill directory not found");
       }
       
       // Show list again
@@ -960,9 +1343,19 @@ function prompt(question: string): Promise<string> {
 }
 
 // Search Skills with interactive selection
-async function searchSkills(query: string, page: number = 1): Promise<void> {
+async function searchSkills(query: string, page: number = 1, options: InstallOptions = {}): Promise<void> {
   log("");
   info(`Searching for: ${colors.bright}${query}${colors.reset} (page ${page})`);
+  
+  // Show target agent if specified
+  if (options.agents?.[0]) {
+    info(`Target agent: ${colors.bright}${options.agents[0]}${colors.reset}`);
+  } else {
+    const agent = detectAgent();
+    if (agent) {
+      info(`Target agent: ${colors.bright}${agent.type}${colors.reset} (auto-detected)`);
+    }
+  }
 
   try {
     const res = await request(
@@ -1033,12 +1426,12 @@ async function searchSkills(query: string, page: number = 1): Promise<void> {
     }
 
     if (answer === 'n' && pagination.page < pagination.totalPages) {
-      await searchSkills(query, page + 1);
+      await searchSkills(query, page + 1, options);
       return;
     }
 
     if (answer === 'p' && pagination.page > 1) {
-      await searchSkills(query, page - 1);
+      await searchSkills(query, page - 1, options);
       return;
     }
 
@@ -1050,8 +1443,103 @@ async function searchSkills(query: string, page: number = 1): Promise<void> {
       info(`Selected: ${colors.bright}${selectedSkill.name}${colors.reset}`);
       debug(`Full skillId: ${selectedSkill.skillId}`);
       
-      // Install the selected skill with full info
-      await installSkill(selectedSkill.skillId, {}, {
+      // If agent not specified, prompt for agent and location
+      let finalOptions = { ...options };
+      
+      if (!options.agents || options.agents.length === 0) {
+        log("");
+        log(`${colors.bright}Install to which agent(s)?${colors.reset}`);
+        log(`${colors.dim}Enter numbers separated by commas (e.g., 1,3,5) or 'all' for all agents${colors.reset}`);
+        log("");
+        
+        // List all available agents
+        const availableAgents = Object.keys(AGENT_CONFIGS);
+        const agentList: string[] = [];
+        
+        availableAgents.forEach((agent, index) => {
+          agentList.push(agent);
+          log(`  [${index + 1}] ${agent}`);
+        });
+        
+        log(`  [all] All agents`);
+        log(`  [q] Cancel`);
+        log("");
+        
+        const agentChoice = await prompt("Select agent(s): ");
+        
+        if (agentChoice === 'q' || agentChoice === '') {
+          log("Installation cancelled");
+          await searchSkills(query, page, options);
+          return;
+        }
+        
+        let selectedAgents: string[] = [];
+        
+        if (agentChoice.toLowerCase() === 'all') {
+          selectedAgents = [...agentList];
+        } else {
+          // Parse comma-separated numbers
+          const choices = agentChoice.split(',').map(s => s.trim());
+          for (const choice of choices) {
+            const num = parseInt(choice);
+            if (num >= 1 && num <= agentList.length) {
+              selectedAgents.push(agentList[num - 1]);
+            } else {
+              error(`Invalid selection: ${choice}`);
+              await searchSkills(query, page, options);
+              return;
+            }
+          }
+        }
+        
+        if (selectedAgents.length === 0) {
+          error("No agents selected");
+          await searchSkills(query, page, options);
+          return;
+        }
+        
+        // Ask for project vs global
+        log("");
+        log(`${colors.bright}Installation location:${colors.reset}`);
+        log(`  [1] Project (e.g., .cursor/skills/)`);
+        log(`  [2] Global (e.g., ~/.cursor/skills/)`);
+        log("");
+        
+        const locationChoice = await prompt("Select location [1]: ");
+        const useGlobal = locationChoice === '2';
+        
+        // Install to all selected agents
+        log("");
+        info(`Installing to ${selectedAgents.length} agent(s)...`);
+        
+        for (const agent of selectedAgents) {
+          const agentOptions = {
+            agents: [agent],
+            global: useGlobal
+          };
+          
+          log("");
+          info(`Installing to ${colors.bright}${agent}${colors.reset}...`);
+          
+          try {
+            await installSkill(selectedSkill.skillId, agentOptions, {
+              githubUrl: selectedSkill.githubUrl,
+              skillId: selectedSkill.skillId,
+              name: selectedSkill.name,
+              source: selectedSkill.source
+            });
+          } catch (err) {
+            error(`Failed to install to ${agent}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        
+        log("");
+        success(`${colors.bright}Installed to ${selectedAgents.length} agent(s) successfully!${colors.reset}`);
+        return;
+      }
+      
+      // Install the selected skill with full info (when agent was pre-specified)
+      await installSkill(selectedSkill.skillId, finalOptions, {
         githubUrl: selectedSkill.githubUrl,
         skillId: selectedSkill.skillId,
         name: selectedSkill.name,
@@ -1061,7 +1549,7 @@ async function searchSkills(query: string, page: number = 1): Promise<void> {
     }
 
     error("Invalid selection");
-    await searchSkills(query, page);
+    await searchSkills(query, page, options);
 
   } catch (err) {
     error("Search failed. API may be unavailable.");
@@ -1194,10 +1682,23 @@ async function main(): Promise<void> {
     case "search":
       if (!args[1]) {
         error("Please specify a search query");
-        log("Usage: npx skills-lc-cli search <query>");
+        log("Usage: npx skills-lc-cli search <query> [options]");
+        log("\nOptions:");
+        log("  --agent <type>    Target agent for installation (claude, cursor, windsurf, etc.)");
+        log("  --global          Install to global directory");
+        log("\nExample:");
+        log("  npx skills-lc-cli search react --agent cursor");
+        log("  npx skills-lc-cli search python --agent windsurf --global");
         process.exit(1);
       }
-      await searchSkills(args[1]);
+      
+      // Parse options for search command
+      const searchParsed = parseOptions(args.slice(1));
+      if (searchParsed) {
+        await searchSkills(searchParsed.input, 1, searchParsed.options);
+      } else {
+        await searchSkills(args[1]);
+      }
       break;
 
     case "help":
