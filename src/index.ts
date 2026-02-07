@@ -819,8 +819,8 @@ async function installSkill(input: string, options: InstallOptions = {}, skillIn
   log("");
 }
 
-// List installed Skills
-function listSkills(): void {
+// List installed Skills with interactive delete option
+async function listSkills(): Promise<void> {
   const agent = detectAgent();
   if (!agent) {
     error("Could not detect AI agent configuration");
@@ -832,6 +832,8 @@ function listSkills(): void {
   info(`Config: ${agent.configPath}`);
   log("");
 
+  let installedSkills: Array<{ id: string; name: string; source?: string }> = [];
+
   if (agent.type === "local") {
     if (!fs.existsSync(agent.configPath)) {
       info("No skills installed yet.");
@@ -842,10 +844,11 @@ function listSkills(): void {
       info("No skills installed yet.");
       return;
     }
-    log("Installed skills:");
-    files.forEach((f) => {
-      log(`  ${colors.green}•${colors.reset} ${f.replace(".md", "")}`);
-    });
+    
+    installedSkills = files.map((f) => ({
+      id: f.replace(".md", ""),
+      name: f.replace(".md", "")
+    }));
   } else {
     if (!fs.existsSync(agent.configPath)) {
       info("No skills installed yet.");
@@ -857,15 +860,83 @@ function listSkills(): void {
       info("No skills installed yet.");
       return;
     }
-    log("Installed skills:");
-    matches.forEach((m) => {
+    
+    installedSkills = matches.map((m) => {
       const match = m.match(/<!-- Skill: ([^ ]+) from ([^ ]+) -->/);
       if (match) {
-        log(`  ${colors.green}•${colors.reset} ${match[1]} ${colors.dim}(${match[2]})${colors.reset}`);
+        return { id: match[1], name: match[1], source: match[2] };
       }
-    });
+      return { id: "", name: "" };
+    }).filter(s => s.id);
   }
+
+  // Display skills with numbers
+  log("Installed skills:");
+  installedSkills.forEach((skill, index) => {
+    if (skill.source) {
+      log(`${colors.cyan}[${index + 1}]${colors.reset} ${skill.name} ${colors.dim}(${skill.source})${colors.reset}`);
+    } else {
+      log(`${colors.cyan}[${index + 1}]${colors.reset} ${skill.name}`);
+    }
+  });
   log("");
+
+  // Interactive prompt
+  log(`${colors.bright}Actions:${colors.reset}`);
+  log(`  [1-${installedSkills.length}] - Delete skill by number`);
+  log(`  [q] - Quit`);
+  log("");
+
+  const answer = await prompt("Select an option: ");
+
+  // Handle user input
+  if (answer === 'q' || answer === '') {
+    log("Exiting...");
+    return;
+  }
+
+  // Check if it's a number selection
+  const num = parseInt(answer);
+  if (num >= 1 && num <= installedSkills.length) {
+    const selectedSkill = installedSkills[num - 1];
+    log("");
+    info(`Selected: ${colors.bright}${selectedSkill.name}${colors.reset}`);
+    
+    // Confirm deletion
+    const confirm = await prompt(`Delete "${selectedSkill.name}"? (y/N): `);
+    if (confirm.toLowerCase() === 'y') {
+      // Delete the skill
+      if (agent.type === "local") {
+        const skillFile = path.join(agent.configPath, `${selectedSkill.id}.md`);
+        if (fs.existsSync(skillFile)) {
+          fs.unlinkSync(skillFile);
+          success(`Deleted: ${selectedSkill.name}`);
+        } else {
+          error("Skill file not found");
+        }
+      } else {
+        const content = fs.readFileSync(agent.configPath, "utf-8");
+        const regex = new RegExp(
+          `<!-- Skill: ${selectedSkill.id} from [^>]+ -->\\n[\\s\\S]*?(?=<!-- Skill:|$)`,
+          "g"
+        );
+        const updated = content.replace(regex, "").replace(/\n{3,}/g, "\n\n");
+        fs.writeFileSync(agent.configPath, updated, "utf-8");
+        success(`Deleted: ${selectedSkill.name}`);
+      }
+      
+      // Show list again
+      log("");
+      await listSkills();
+    } else {
+      info("Deletion cancelled");
+      await listSkills();
+    }
+    return;
+  }
+
+  error("Invalid selection");
+  await listSkills();
 }
 
 // Import readline for interactive prompts
@@ -1106,7 +1177,7 @@ async function main(): Promise<void> {
 
     case "list":
     case "ls":
-      listSkills();
+      await listSkills();
       break;
 
     case "search":
