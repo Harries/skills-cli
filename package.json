@@ -28,14 +28,16 @@
   ],
   "author": "Skills Platform",
   "license": "MIT",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/anthropics/skills.git",
-    "directory": "cli"
+    "url": "https://github.com/Harries/skills-cli.git"
   },
   "homepage": "https://skills.lc",
   "bugs": {
-    "url": "https://github.com/anthropics/skills/issues"
+    "url": "https://github.com/Harries/skills-cli/issues"
   },
   "devDependencies": {
     "@types/node": "^20",
