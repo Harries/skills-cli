@@ -466,41 +466,15 @@ async function installSingleSkill(
 ): Promise<void> {
   info(`Installing: ${colors.bright}${skill.skillId}${colors.reset}`);
   
-  const configDir = path.dirname(agent.configPath);
+  const configDir = agent.configPath;
   if (!fs.existsSync(configDir)) {
     fs.mkdirSync(configDir, { recursive: true });
   }
 
-  if (agent.type === "local") {
-    const skillFile = path.join(agent.configPath, `${skill.skillId}.md`);
-    if (!fs.existsSync(agent.configPath)) {
-      fs.mkdirSync(agent.configPath, { recursive: true });
-    }
-    fs.writeFileSync(skillFile, skill.content, "utf-8");
-    success(`Saved to ${skillFile}`);
-  } else {
-    const separator = "\n\n---\n\n";
-    const header = `<!-- Skill: ${skill.skillId} from ${source} -->\n`;
-    const content = header + skill.content;
-
-    if (fs.existsSync(agent.configPath)) {
-      const existing = fs.readFileSync(agent.configPath, "utf-8");
-      if (existing.includes(`Skill: ${skill.skillId}`)) {
-        debug("Skill already installed, updating...");
-        const regex = new RegExp(
-          `<!-- Skill: ${skill.skillId} from [^>]+ -->\\n[\\s\\S]*?(?=<!-- Skill:|$)`,
-          "g"
-        );
-        const updated = existing.replace(regex, content + separator);
-        fs.writeFileSync(agent.configPath, updated, "utf-8");
-      } else {
-        fs.appendFileSync(agent.configPath, separator + content, "utf-8");
-      }
-    } else {
-      fs.writeFileSync(agent.configPath, content, "utf-8");
-    }
-    success(`Installed to ${agent.configPath}`);
-  }
+  // All agents use directory-based storage now
+  const skillFile = path.join(configDir, `${skill.skillId}.md`);
+  fs.writeFileSync(skillFile, skill.content, "utf-8");
+  success(`Saved to ${skillFile}`);
 
   // Record install
   debug("Recording install...");
@@ -510,6 +484,84 @@ async function installSingleSkill(
   } else {
     debug("Could not record install (API may be unavailable)");
   }
+}
+
+// Agent configuration mapping
+const AGENT_CONFIGS: Record<string, { projectPath: string; globalPath: string }> = {
+  'amp': { projectPath: '.agents/skills/', globalPath: '~/.config/agents/skills/' },
+  'kimi-cli': { projectPath: '.agents/skills/', globalPath: '~/.config/agents/skills/' },
+  'antigravity': { projectPath: '.agent/skills/', globalPath: '~/.gemini/antigravity/global_skills/' },
+  'augment': { projectPath: '.augment/rules/', globalPath: '~/.augment/rules/' },
+  'claude': { projectPath: '.claude/skills/', globalPath: '~/.claude/skills/' },
+  'claude-code': { projectPath: '.claude/skills/', globalPath: '~/.claude/skills/' },
+  'openclaw': { projectPath: 'skills/', globalPath: '~/.moltbot/skills/' },
+  'cline': { projectPath: '.cline/skills/', globalPath: '~/.cline/skills/' },
+  'codebuddy': { projectPath: '.codebuddy/skills/', globalPath: '~/.codebuddy/skills/' },
+  'codex': { projectPath: '.codex/skills/', globalPath: '~/.codex/skills/' },
+  'command-code': { projectPath: '.commandcode/skills/', globalPath: '~/.commandcode/skills/' },
+  'continue': { projectPath: '.continue/skills/', globalPath: '~/.continue/skills/' },
+  'crush': { projectPath: '.crush/skills/', globalPath: '~/.config/crush/skills/' },
+  'cursor': { projectPath: '.cursor/skills/', globalPath: '~/.cursor/skills/' },
+  'droid': { projectPath: '.factory/skills/', globalPath: '~/.factory/skills/' },
+  'gemini-cli': { projectPath: '.gemini/skills/', globalPath: '~/.gemini/skills/' },
+  'github-copilot': { projectPath: '.github/skills/', globalPath: '~/.copilot/skills/' },
+  'goose': { projectPath: '.goose/skills/', globalPath: '~/.config/goose/skills/' },
+  'junie': { projectPath: '.junie/skills/', globalPath: '~/.junie/skills/' },
+  'iflow-cli': { projectPath: '.iflow/skills/', globalPath: '~/.iflow/skills/' },
+  'kilo': { projectPath: '.kilocode/skills/', globalPath: '~/.kilocode/skills/' },
+  'kiro-cli': { projectPath: '.kiro/skills/', globalPath: '~/.kiro/skills/' },
+  'kode': { projectPath: '.kode/skills/', globalPath: '~/.kode/skills/' },
+  'mcpjam': { projectPath: '.mcpjam/skills/', globalPath: '~/.mcpjam/skills/' },
+  'mistral-vibe': { projectPath: '.vibe/skills/', globalPath: '~/.vibe/skills/' },
+  'mux': { projectPath: '.mux/skills/', globalPath: '~/.mux/skills/' },
+  'opencode': { projectPath: '.opencode/skills/', globalPath: '~/.config/opencode/skills/' },
+  'openclaude': { projectPath: '.openclaude/skills/', globalPath: '~/.openclaude/skills/' },
+  'openhands': { projectPath: '.openhands/skills/', globalPath: '~/.openhands/skills/' },
+  'pi': { projectPath: '.pi/skills/', globalPath: '~/.pi/agent/skills/' },
+  'qoder': { projectPath: '.qoder/skills/', globalPath: '~/.qoder/skills/' },
+  'qwen-code': { projectPath: '.qwen/skills/', globalPath: '~/.qwen/skills/' },
+  'replit': { projectPath: '.agent/skills/', globalPath: '' }, // project-only
+  'roo': { projectPath: '.roo/skills/', globalPath: '~/.roo/skills/' },
+  'trae': { projectPath: '.trae/skills/', globalPath: '~/.trae/skills/' },
+  'trae-cn': { projectPath: '.trae/skills/', globalPath: '~/.trae-cn/skills/' },
+  'windsurf': { projectPath: '.windsurf/skills/', globalPath: '~/.codeium/windsurf/skills/' },
+  'zencoder': { projectPath: '.zencoder/skills/', globalPath: '~/.zencoder/skills/' },
+  'neovate': { projectPath: '.neovate/skills/', globalPath: '~/.neovate/skills/' },
+  'pochi': { projectPath: '.pochi/skills/', globalPath: '~/.pochi/skills/' },
+  'adal': { projectPath: '.adal/skills/', globalPath: '~/.adal/skills/' },
+  'local': { projectPath: '.skills/', globalPath: '~/.skills/' },
+};
+
+// Detect Agent type or get specified agent
+function getAgent(agentType?: string, useGlobal?: boolean): { type: string; configPath: string } | null {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+  const cwd = process.cwd();
+
+  // If agent type is specified, use it
+  if (agentType) {
+    const type = agentType.toLowerCase();
+    const config = AGENT_CONFIGS[type];
+    
+    if (config) {
+      // Determine which path to use
+      let basePath: string;
+      if (useGlobal && config.globalPath) {
+        basePath = config.globalPath.replace('~', homeDir);
+      } else {
+        basePath = path.join(cwd, config.projectPath);
+      }
+      
+      return { type, configPath: basePath };
+    }
+    
+    // Unknown agent type
+    error(`Unknown agent type: ${agentType}`);
+    info("Supported agents: " + Object.keys(AGENT_CONFIGS).join(', '));
+    return null;
+  }
+
+  // Auto-detect agent
+  return detectAgent();
 }
 
 // Detect Agent type
@@ -762,49 +814,29 @@ async function installSkill(input: string, options: InstallOptions = {}, skillIn
 
   success(`Found skill: ${skill.skillId}`);
 
-  const agent = detectAgent();
+  const agent = getAgent(options.agents?.[0], options.global);
   if (!agent) {
     error("Could not detect AI agent configuration");
     process.exit(1);
   }
 
-  info(`Detected agent: ${colors.bright}${agent.type}${colors.reset}`);
+  info(`Target agent: ${colors.bright}${agent.type}${colors.reset}`);
+  if (options.agents?.[0]) {
+    debug(`Using specified agent: ${options.agents[0]}`);
+  }
+  if (options.global) {
+    debug(`Using global installation path`);
+  }
 
-  const configDir = path.dirname(agent.configPath);
+  const configDir = agent.configPath;
   if (!fs.existsSync(configDir)) {
     fs.mkdirSync(configDir, { recursive: true });
   }
 
-  if (agent.type === "local") {
-    const skillFile = path.join(agent.configPath, `${skill.skillId}.md`);
-    if (!fs.existsSync(agent.configPath)) {
-      fs.mkdirSync(agent.configPath, { recursive: true });
-    }
-    fs.writeFileSync(skillFile, skill.content, "utf-8");
-    success(`Saved to ${skillFile}`);
-  } else {
-    const separator = "\n\n---\n\n";
-    const header = `<!-- Skill: ${skill.skillId} from ${source} -->\n`;
-    const content = header + skill.content;
-
-    if (fs.existsSync(agent.configPath)) {
-      const existing = fs.readFileSync(agent.configPath, "utf-8");
-      if (existing.includes(`Skill: ${skill.skillId}`)) {
-        info("Skill already installed, updating...");
-        const regex = new RegExp(
-          `<!-- Skill: ${skill.skillId} from [^>]+ -->\\n[\\s\\S]*?(?=<!-- Skill:|$)`,
-          "g"
-        );
-        const updated = existing.replace(regex, content + separator);
-        fs.writeFileSync(agent.configPath, updated, "utf-8");
-      } else {
-        fs.appendFileSync(agent.configPath, separator + content, "utf-8");
-      }
-    } else {
-      fs.writeFileSync(agent.configPath, content, "utf-8");
-    }
-    success(`Installed to ${agent.configPath}`);
-  }
+  // All agents use directory-based storage now
+  const skillFile = path.join(configDir, `${skill.skillId}.md`);
+  fs.writeFileSync(skillFile, skill.content, "utf-8");
+  success(`Installed to ${skillFile}`);
 
   info("Recording install...");
   const recorded = await recordInstall(reportSkillId, source, reportGithubUrl);
@@ -832,52 +864,29 @@ async function listSkills(): Promise<void> {
   info(`Config: ${agent.configPath}`);
   log("");
 
-  let installedSkills: Array<{ id: string; name: string; source?: string }> = [];
+  let installedSkills: Array<{ id: string; name: string }> = [];
 
-  if (agent.type === "local") {
-    if (!fs.existsSync(agent.configPath)) {
-      info("No skills installed yet.");
-      return;
-    }
-    const files = fs.readdirSync(agent.configPath).filter((f) => f.endsWith(".md"));
-    if (files.length === 0) {
-      info("No skills installed yet.");
-      return;
-    }
-    
-    installedSkills = files.map((f) => ({
-      id: f.replace(".md", ""),
-      name: f.replace(".md", "")
-    }));
-  } else {
-    if (!fs.existsSync(agent.configPath)) {
-      info("No skills installed yet.");
-      return;
-    }
-    const content = fs.readFileSync(agent.configPath, "utf-8");
-    const matches = content.match(/<!-- Skill: ([^ ]+) from ([^ ]+) -->/g);
-    if (!matches || matches.length === 0) {
-      info("No skills installed yet.");
-      return;
-    }
-    
-    installedSkills = matches.map((m) => {
-      const match = m.match(/<!-- Skill: ([^ ]+) from ([^ ]+) -->/);
-      if (match) {
-        return { id: match[1], name: match[1], source: match[2] };
-      }
-      return { id: "", name: "" };
-    }).filter(s => s.id);
+  // All agents use directory-based storage now
+  if (!fs.existsSync(agent.configPath)) {
+    info("No skills installed yet.");
+    return;
   }
+  
+  const files = fs.readdirSync(agent.configPath).filter((f) => f.endsWith(".md"));
+  if (files.length === 0) {
+    info("No skills installed yet.");
+    return;
+  }
+  
+  installedSkills = files.map((f) => ({
+    id: f.replace(".md", ""),
+    name: f.replace(".md", "")
+  }));
 
   // Display skills with numbers
   log("Installed skills:");
   installedSkills.forEach((skill, index) => {
-    if (skill.source) {
-      log(`${colors.cyan}[${index + 1}]${colors.reset} ${skill.name} ${colors.dim}(${skill.source})${colors.reset}`);
-    } else {
-      log(`${colors.cyan}[${index + 1}]${colors.reset} ${skill.name}`);
-    }
+    log(`${colors.cyan}[${index + 1}]${colors.reset} ${skill.name}`);
   });
   log("");
 
@@ -906,23 +915,12 @@ async function listSkills(): Promise<void> {
     const confirm = await prompt(`Delete "${selectedSkill.name}"? (y/N): `);
     if (confirm.toLowerCase() === 'y') {
       // Delete the skill
-      if (agent.type === "local") {
-        const skillFile = path.join(agent.configPath, `${selectedSkill.id}.md`);
-        if (fs.existsSync(skillFile)) {
-          fs.unlinkSync(skillFile);
-          success(`Deleted: ${selectedSkill.name}`);
-        } else {
-          error("Skill file not found");
-        }
-      } else {
-        const content = fs.readFileSync(agent.configPath, "utf-8");
-        const regex = new RegExp(
-          `<!-- Skill: ${selectedSkill.id} from [^>]+ -->\\n[\\s\\S]*?(?=<!-- Skill:|$)`,
-          "g"
-        );
-        const updated = content.replace(regex, "").replace(/\n{3,}/g, "\n\n");
-        fs.writeFileSync(agent.configPath, updated, "utf-8");
+      const skillFile = path.join(agent.configPath, `${selectedSkill.id}.md`);
+      if (fs.existsSync(skillFile)) {
+        fs.unlinkSync(skillFile);
         success(`Deleted: ${selectedSkill.name}`);
+      } else {
+        error("Skill file not found");
       }
       
       // Show list again
@@ -1142,10 +1140,12 @@ ${colors.bright}ENVIRONMENT${colors.reset}
   SKILLS_API_TOKEN    API token (optional, has default)
 
 ${colors.bright}SUPPORTED AGENTS${colors.reset}
-  • Claude Code    ~/.claude/CLAUDE.md
-  • Cursor         .cursor/rules/skill.mdc
-  • Codex          ~/.codex/instructions.md
-  • Local          .skills/*.md
+  amp, kimi-cli, antigravity, augment, claude, claude-code, openclaw,
+  cline, codebuddy, codex, command-code, continue, crush, cursor, droid,
+  gemini-cli, github-copilot, goose, junie, iflow-cli, kilo, kiro-cli,
+  kode, mcpjam, mistral-vibe, mux, opencode, openclaude, openhands, pi,
+  qoder, qwen-code, replit, roo, trae, trae-cn, windsurf, zencoder,
+  neovate, pochi, adal, local
 `);
 }
 
@@ -1168,11 +1168,22 @@ async function main(): Promise<void> {
     case "install":
       if (!args[1]) {
         error("Please specify a skill to install");
-        log("Usage: npx skills-lc-cli add <skillId>");
-        log("   or: npx skills-lc-cli add <owner/repo/skillId>");
+        log("Usage: npx skills-lc-cli add <skillId> [options]");
+        log("   or: npx skills-lc-cli add <owner/repo/skillId> [options]");
+        log("\nOptions:");
+        log("  --agent <type>    Install to specific agent (claude, cursor, codex, local)");
+        log("\nExample:");
+        log("  npx skills-lc-cli add react-best-practices --agent cursor");
         process.exit(1);
       }
-      await installSkill(args[1]);
+      
+      // Parse options
+      const parsedOptions = parseOptions(args.slice(1));
+      if (parsedOptions) {
+        await installSkill(parsedOptions.input, parsedOptions.options);
+      } else {
+        await installSkill(args[1]);
+      }
       break;
 
     case "list":
