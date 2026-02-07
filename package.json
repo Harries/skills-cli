@@ -1,6 +1,6 @@
 {
   "name": "skills-lc-cli",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "CLI tool for installing AI Agent Skills - Works with Claude Code, Cursor, Codex and more",
   "main": "dist/index.js",
   "bin": {
@@ -50,4 +50,3 @@
     "README.md"
   ]
 }
-
