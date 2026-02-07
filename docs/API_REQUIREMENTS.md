@@ -53,7 +53,52 @@ curl -X POST "https://skills.lc/api/install" \
 
 ---
 
-### 2. GET /api/v1/skills/search
+### 2. GET /api/v1/skills/{skillId}
+Get a skill by exact skillId match.
+
+**Authentication Required:** Yes - Bearer token in Authorization header.
+
+**Headers:**
+| Header | Required | Description |
+|--------|----------|-------------|
+| Authorization | Yes | `Bearer <token>` |
+
+**Path Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| skillId | string | Yes | The unique skill identifier (e.g., owner/repo/skill-name) |
+
+**Example Request:**
+```bash
+curl -X GET "https://skills.lc/api/v1/skills/vercel-labs/ai-sdk/text-generation" \
+  -H "Authorization: Bearer sk_live_xxxxx"
+```
+
+**Example Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "clxx...",
+    "skillId": "vercel-labs/ai-sdk/text-generation",
+    "name": "Text Generation",
+    "source": "vercel-labs/ai-sdk",
+    "description": "Generate text using AI models...",
+    "author": "Vercel Labs",
+    "tags": ["ai", "text-generation", "llm"],
+    "stars": 1250,
+    "githubUrl": "https://github.com/vercel-labs/ai-sdk",
+    "version": "1.0.0",
+    "license": "MIT",
+    "createdAt": "2024-01-15T10:30:00.000Z",
+    "updatedAt": "2024-01-20T15:45:00.000Z"
+  }
+}
+```
+
+---
+
+### 3. GET /api/v1/skills/search
 Search and list skills with filtering and pagination.
 
 **Authentication Required:** Yes - Bearer token in Authorization header.
@@ -114,7 +159,7 @@ curl -X GET "https://skills.lc/api/v1/skills/search?q=react&limit=10" \
 
 | Command | API Used |
 |---------|----------|
-| `skills-lc add <owner/repo/skillId>` | `POST /api/install` |
+| `skills-lc add <owner/repo/skillId>` | `GET /api/v1/skills/{skillId}` + `POST /api/install` |
 | `skills-lc search <query>` | `GET /api/v1/skills/search` |
 | `skills-lc list` | Local only |
 | `skills-lc help` | Local only |
@@ -124,6 +169,10 @@ curl -X GET "https://skills.lc/api/v1/skills/search?q=react&limit=10" \
 ## Test Commands
 
 ```bash
+# Get skill details (requires token)
+curl -X GET "https://skills.lc/api/v1/skills/vercel-labs/ai-sdk/text-generation" \
+  -H "Authorization: Bearer sk_live_xxxxx"
+
 # Search (requires token)
 curl -X GET "https://skills.lc/api/v1/skills/search?q=react&limit=5" \
   -H "Authorization: Bearer sk_live_xxxxx"

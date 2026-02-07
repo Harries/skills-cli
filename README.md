@@ -8,7 +8,10 @@ CLI tool for installing AI Agent Skills from [skills.lc](https://skills.lc). Wor
 ## Quick Start
 
 ```bash
-# Install a skill with npx (no installation required)
+# Install a skill by ID (recommended)
+npx skills-lc-cli add react-best-practices
+
+# Or by full path
 npx skills-lc-cli add vercel-labs/agent-skills/react-best-practices
 ```
 
@@ -16,17 +19,21 @@ npx skills-lc-cli add vercel-labs/agent-skills/react-best-practices
 
 ```bash
 # Using npx (recommended, no installation needed)
-npx skills-lc-cli add <owner/repo/skillId>
+npx skills-lc-cli add <skillId>
 
 # Or install globally
 npm install -g skills-lc-cli
-skills-lc add <owner/repo/skillId>
+skills-lc add <skillId>
 ```
 
 ## Usage
 
 ```bash
-# Install a skill from GitHub
+# Install a skill by ID
+skills-lc add react-best-practices
+skills-lc add text-generation
+
+# Install by full path
 skills-lc add vercel-labs/agent-skills/react-best-practices
 skills-lc add anthropics/skills/frontend-design
 
@@ -76,10 +83,11 @@ The CLI automatically detects your environment and installs skills to the right 
 ## Examples
 
 ```bash
-# Search for React-related skills
-npx skills-lc-cli search react
+# Install by skill ID (easiest)
+npx skills-lc-cli add react-best-practices
+npx skills-lc-cli add text-generation
 
-# Install React best practices from Vercel
+# Install by full path
 npx skills-lc-cli add vercel-labs/agent-skills/react-best-practices
 
 # Install frontend design skill from Anthropic
