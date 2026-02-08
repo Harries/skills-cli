@@ -350,7 +350,10 @@ function buildPossiblePaths(skillId?: string): string[] {
   const paths: string[] = [];
 
   if (skillId) {
-    // Try direct skillId paths first (most common)
+    // Try root level SKILL.md first (for repos with skill at root)
+    paths.push('SKILL.md');
+    
+    // Try direct skillId paths (for repos with skills in subdirectories)
     paths.push(`${skillId}/SKILL.md`);
     paths.push(`skills/${skillId}/SKILL.md`);
     paths.push(`skills/${skillId}.md`);
@@ -436,14 +439,21 @@ async function recordInstall(skillId: string, source: string, githubUrl?: string
   try {
     const payload: { skillId?: string; githubUrl?: string; source: string } = { source };
     
-    // Priority 1: use skillId if it looks like a valid skill identifier (not a URL)
-    if (skillId && !skillId.startsWith('http')) {
-      payload.skillId = skillId;
-    } else if (githubUrl) {
-      // Priority 2: use githubUrl if provided
+    // Always send githubUrl if provided
+    if (githubUrl) {
       payload.githubUrl = githubUrl;
-    } else if (skillId) {
-      // Fallback: use skillId as githubUrl if it's a URL
+    }
+    
+    // Only send skillId if it's a valid registry identifier:
+    // - Not empty
+    // - Not a URL (doesn't start with http)
+    // - Not a path (doesn't contain /)
+    if (skillId && !skillId.startsWith('http') && !skillId.includes('/')) {
+      payload.skillId = skillId;
+    }
+    
+    // If no githubUrl but skillId is a URL, use skillId as githubUrl
+    if (!payload.githubUrl && skillId && skillId.startsWith('http')) {
       payload.githubUrl = skillId;
     }
     
@@ -496,26 +506,43 @@ async function downloadSkillDirectory(
     
     // Filter files in the skill directory
     const prefix = skillDir ? `${skillDir}/` : '';
-    const files = data.tree.filter((item: any) => 
-      item.type === 'blob' && 
-      item.path.startsWith(prefix) &&
-      item.path !== prefix // Exclude the directory itself
-    );
+    const files = data.tree.filter((item: any) => {
+      if (item.type !== 'blob') return false;
+      
+      if (prefix === '') {
+        // Root level - download all files
+        return true;
+      } else {
+        // Subdirectory - only download files in that directory
+        return item.path.startsWith(prefix) && item.path !== prefix;
+      }
+    });
     
     if (files.length === 0) {
       return false;
     }
     
-    debug(`Found ${files.length} files in ${skillDir}`);
+    debug(`Found ${files.length} files in ${skillDir || 'root'}`);
     
     // Download each file
+    let successCount = 0;
+    let failCount = 0;
+    
     for (const file of files) {
       const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${file.path}`;
       try {
         const fileRes = await request(rawUrl);
         if (fileRes.status === 200) {
           // Calculate relative path within skill directory
-          const relativePath = file.path.substring(prefix.length);
+          let relativePath: string;
+          if (prefix === '') {
+            // Root level - use the file path as-is
+            relativePath = file.path;
+          } else {
+            // Subdirectory - remove the prefix
+            relativePath = file.path.substring(prefix.length);
+          }
+          
           const targetPath = path.join(targetDir, relativePath);
           
           // Create subdirectories if needed
@@ -527,10 +554,29 @@ async function downloadSkillDirectory(
           // Write file
           fs.writeFileSync(targetPath, fileRes.data, 'utf-8');
           debug(`Downloaded: ${relativePath}`);
+          successCount++;
+        } else {
+          debug(`Failed to download ${file.path}: HTTP ${fileRes.status}`);
+          failCount++;
         }
       } catch (err) {
-        debug(`Failed to download ${file.path}: ${err}`);
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        debug(`Failed to download ${file.path}: ${errorMsg}`);
+        error(`Failed to download ${file.path}: ${errorMsg}`);
+        failCount++;
       }
+    }
+    
+    debug(`Download complete: ${successCount} succeeded, ${failCount} failed`);
+    
+    // Only return true if at least some files were downloaded successfully
+    if (successCount === 0) {
+      error(`Failed to download any files from the skill directory`);
+      return false;
+    }
+    
+    if (failCount > 0) {
+      error(`Warning: ${failCount} file(s) failed to download`);
     }
     
     return true;
@@ -563,11 +609,20 @@ async function installSingleSkill(
   // Try to download entire directory from GitHub
   let downloadedDirectory = false;
   if (githubUrl) {
-    const urlMatch = githubUrl.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
-    if (urlMatch) {
-      const [, owner, repo, branch, dirPath] = urlMatch;
+    // Match URL with subdirectory: github.com/owner/repo/tree/branch/dirPath
+    const urlMatchWithDir = githubUrl.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
+    if (urlMatchWithDir) {
+      const [, owner, repo, branch, dirPath] = urlMatchWithDir;
       debug(`Downloading directory from GitHub: ${owner}/${repo}/${dirPath}`);
       downloadedDirectory = await downloadSkillDirectory(owner, repo, branch, dirPath, skillDir);
+    } else {
+      // Match URL without subdirectory (skill at repo root): github.com/owner/repo/tree/branch
+      const urlMatchRoot = githubUrl.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/?$/);
+      if (urlMatchRoot) {
+        const [, owner, repo, branch] = urlMatchRoot;
+        debug(`Downloading directory from GitHub root: ${owner}/${repo}`);
+        downloadedDirectory = await downloadSkillDirectory(owner, repo, branch, '', skillDir);
+      }
     }
   }
   
@@ -1102,11 +1157,20 @@ async function installSkill(input: string, options: InstallOptions = {}, skillIn
         // Try to download entire directory from GitHub
         let downloadedDirectory = false;
         if (reportGithubUrl) {
-          const urlMatch = reportGithubUrl.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
-          if (urlMatch) {
-            const [, owner, repo, branch, dirPath] = urlMatch;
+          // Match URL with subdirectory: github.com/owner/repo/tree/branch/dirPath
+          const urlMatchWithDir = reportGithubUrl.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
+          if (urlMatchWithDir) {
+            const [, owner, repo, branch, dirPath] = urlMatchWithDir;
             debug(`Downloading directory from GitHub: ${owner}/${repo}/${dirPath}`);
             downloadedDirectory = await downloadSkillDirectory(owner, repo, branch, dirPath, skillDir);
+          } else {
+            // Match URL without subdirectory (skill at repo root): github.com/owner/repo/tree/branch
+            const urlMatchRoot = reportGithubUrl.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/?$/);
+            if (urlMatchRoot) {
+              const [, owner, repo, branch] = urlMatchRoot;
+              debug(`Downloading directory from GitHub root: ${owner}/${repo}`);
+              downloadedDirectory = await downloadSkillDirectory(owner, repo, branch, '', skillDir);
+            }
           }
         }
         
@@ -1165,11 +1229,20 @@ async function installSkill(input: string, options: InstallOptions = {}, skillIn
   // Try to download entire directory from GitHub
   let downloadedDirectory = false;
   if (reportGithubUrl) {
-    const urlMatch = reportGithubUrl.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
-    if (urlMatch) {
-      const [, owner, repo, branch, dirPath] = urlMatch;
+    // Match URL with subdirectory: github.com/owner/repo/tree/branch/dirPath
+    const urlMatchWithDir = reportGithubUrl.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
+    if (urlMatchWithDir) {
+      const [, owner, repo, branch, dirPath] = urlMatchWithDir;
       debug(`Downloading directory from GitHub: ${owner}/${repo}/${dirPath}`);
       downloadedDirectory = await downloadSkillDirectory(owner, repo, branch, dirPath, skillDir);
+    } else {
+      // Match URL without subdirectory (skill at repo root): github.com/owner/repo/tree/branch
+      const urlMatchRoot = reportGithubUrl.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/?$/);
+      if (urlMatchRoot) {
+        const [, owner, repo, branch] = urlMatchRoot;
+        debug(`Downloading directory from GitHub root: ${owner}/${repo}`);
+        downloadedDirectory = await downloadSkillDirectory(owner, repo, branch, '', skillDir);
+      }
     }
   }
   
